@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environment (never commit this)
+.venv/
+venv/
+
+# Secrets (from Stage 3 on: database passwords live here locally, never in git)
+.env
+
+# OS clutter
+.DS_Store
+Thumbs.db

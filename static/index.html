@@ -128,6 +128,7 @@
       margin: 0;
       max-width: 30ch;
     }
+    .sentence.loading { color: var(--muted); font-size: 1.25rem; }
     .meaning {
       margin: 16px 0 0;
       color: var(--muted);
@@ -288,6 +289,7 @@
       <div class="feedback">
         <p id="feedback" aria-live="polite"></p>
         <button class="primary" id="next" hidden>Next sentence</button>
+        <button class="primary" id="retry" hidden>Try again</button>
       </div>
     </section>
 
@@ -301,192 +303,183 @@
 
     <!-- Edit this line: add your name or a link to your GitHub repo. -->
     <footer>A small project for learning how to deploy apps, step by step.</footer>
-    <footer>Owner: Carlos Cham</footer>
-    <footer>repo link : https://github.com/CWLCP99/Guess-the-language</footer>
   </main>
 
   <script>
     // =========================================================
-    // 1. DATA
-    // In Stage 2 this list moves to the Python backend (FastAPI),
-    // and the page will fetch sentences from /round instead.
+    // Stage 2: the page no longer knows the answers.
+    // It asks the backend for sentences and sends guesses to it.
+    //   POST /api/games                 -> start a game, get sentence 1
+    //   POST /api/games/{id}/answers    -> send a guess, get the result
     // =========================================================
-    const SENTENCES = [
-      // English
-      { text: "I missed the last train and walked home.", lang: "en" },
-      { text: "Could you pass me the salt, please?", lang: "en" },
-      { text: "My grandmother still writes letters by hand.", lang: "en" },
-      { text: "The meeting was moved to Thursday afternoon.", lang: "en" },
-      { text: "We forgot the tent, so we slept in the car.", lang: "en" },
-      { text: "Nobody knows who ate the last piece of cake.", lang: "en" },
-      { text: "The hotel has a restaurant and a bar.", lang: "en" },
-      { text: "It's raining cats and dogs.", lang: "en", meaning: "Idiom: it's raining very heavily." },
-      { text: "The bakery on the corner opens at six.", lang: "en" },
-      { text: "Turn left after the bridge and you'll see the station.", lang: "en" },
 
-      // German
-      { text: "Ich habe den letzten Zug verpasst und bin zu Fuß nach Hause gegangen.", lang: "de", meaning: "I missed the last train and walked home." },
-      { text: "Kannst du mir bitte das Salz geben?", lang: "de", meaning: "Can you pass me the salt, please?" },
-      { text: "Am Wochenende fahren wir in die Berge.", lang: "de", meaning: "At the weekend we're going to the mountains." },
-      { text: "Der Kühlschrank ist schon wieder leer.", lang: "de", meaning: "The fridge is empty again." },
-      { text: "Meine Nachbarin hat drei Katzen und einen Hund.", lang: "de", meaning: "My neighbour has three cats and a dog." },
-      { text: "Wir treffen uns um acht vor dem Kino.", lang: "de", meaning: "We'll meet at eight in front of the cinema." },
-      { text: "Das Hotel hat ein Restaurant und eine Bar.", lang: "de", meaning: "The hotel has a restaurant and a bar." },
-      { text: "Bei Regen bleibe ich lieber im Bett.", lang: "de", meaning: "When it rains I'd rather stay in bed." },
-      { text: "Die Bäckerei an der Ecke öffnet um sechs.", lang: "de", meaning: "The bakery on the corner opens at six." },
-      { text: "Ich verstehe nur Bahnhof.", lang: "de", meaning: "Idiom, literally \"I only understand train station\": I don't understand a thing." },
-
-      // Spanish
-      { text: "Perdí el último tren y volví a casa caminando.", lang: "es", meaning: "I missed the last train and walked home." },
-      { text: "¿Me pasas la sal, por favor?", lang: "es", meaning: "Can you pass me the salt, please?" },
-      { text: "Mañana vamos a la playa si no llueve.", lang: "es", meaning: "Tomorrow we're going to the beach if it doesn't rain." },
-      { text: "Mi abuela todavía escribe cartas a mano.", lang: "es", meaning: "My grandmother still writes letters by hand." },
-      { text: "El perro de mi vecino ladra toda la noche.", lang: "es", meaning: "My neighbour's dog barks all night." },
-      { text: "Nos vemos a las ocho delante del cine.", lang: "es", meaning: "See you at eight in front of the cinema." },
-      { text: "El hotel tiene un restaurante y un bar.", lang: "es", meaning: "The hotel has a restaurant and a bar." },
-      { text: "No hay mal que por bien no venga.", lang: "es", meaning: "Proverb: every cloud has a silver lining." },
-      { text: "La panadería de la esquina abre a las seis.", lang: "es", meaning: "The bakery on the corner opens at six." },
-      { text: "Me gusta cocinar con música.", lang: "es", meaning: "I like cooking with music on." },
-    ];
+    // Empty string = "the same server that served this page".
+    // If the page were hosted somewhere else, the backend URL would go here.
+    const API = "";
 
     const LANG_NAMES = { en: "English", de: "Deutsch", es: "Español" };
-    const ROUNDS = 10;
     const BEST_KEY = "gtl-best-score";
 
-    // =========================================================
-    // 2. GAME STATE
-    // Everything the game needs to remember lives in one object.
-    // =========================================================
     let state;
+    let retryAction = null;
 
-    function newGame() {
-      state = {
-        deck: shuffle([...SENTENCES]).slice(0, ROUNDS), // 10 random sentences
-        round: 0,          // index of the current sentence
-        score: 0,
-        streak: 0,
-        history: [],       // true/false per answered round
-        answered: false,
-      };
-      show("game");
-      renderTicks();
-      showRound();
-    }
-
-    // Fisher–Yates shuffle: a fair random order.
-    function shuffle(list) {
-      for (let i = list.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [list[i], list[j]] = [list[j], list[i]];
-      }
-      return list;
-    }
-
-    // =========================================================
-    // 3. RENDERING
-    // =========================================================
     const $ = (id) => document.getElementById(id);
     const buttons = [...document.querySelectorAll(".answer")];
 
-    function show(screen) {
-      $("game").hidden = screen !== "game";
-      $("results").hidden = screen !== "results";
+    // ---------- Talking to the backend ----------
+    async function post(path, body) {
+      const res = await fetch(API + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(typeof data.detail === "string" ? data.detail : `Server error ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return data;
     }
 
-    function renderTicks() {
-      const ticks = $("ticks");
-      ticks.innerHTML = "";
-      for (let i = 0; i < ROUNDS; i++) {
-        const t = document.createElement("span");
-        t.className = "tick";
-        if (state.history[i] === true) t.classList.add("right");
-        else if (state.history[i] === false) t.classList.add("wrong");
-        else if (i === state.round) t.classList.add("now");
-        ticks.appendChild(t);
+    // ---------- Starting a game ----------
+    async function newGame() {
+      state = {
+        gameId: null,
+        round: 1,
+        total: 10,
+        score: 0,
+        streak: 0,
+        history: [],        // true/false per answered round
+        answered: true,     // blocks input until a sentence is on screen
+        finished: false,
+        nextSentence: null,
+      };
+      show("game");
+      showSentence("Loading a sentence…", { loading: true });
+
+      try {
+        const game = await post("/api/games");
+        state.gameId = game.game_id;
+        state.round = game.round;
+        state.total = game.total;
+        showSentence(game.sentence);
+      } catch (err) {
+        showError("Couldn't reach the game server. Check your connection and try again.", newGame);
       }
     }
 
-    function showRound() {
-      const item = state.deck[state.round];
-      state.answered = false;
-
-      $("round").textContent = state.round + 1;
-      $("total").textContent = ROUNDS;
-      $("score").textContent = state.score;
-      $("streak").textContent = state.streak;
-      $("sentence").textContent = item.text;
-      $("sentence").lang = item.lang; // helps screen readers pronounce it
-      $("meaning").textContent = "";
-      $("feedback").textContent = "";
-      $("next").hidden = true;
-
-      const stamp = $("stamp");
-      stamp.className = "stamp";
-      stamp.textContent = "";
-
-      $("answers").classList.remove("locked");
-      buttons.forEach((b) => {
-        b.disabled = false;
-        b.classList.remove("picked", "correct");
-      });
-      renderTicks();
-    }
-
-    // =========================================================
-    // 4. ANSWERING
-    // =========================================================
-    function answer(guess) {
+    // ---------- Answering ----------
+    async function answer(guess) {
       if (state.answered) return;
       state.answered = true;
-
-      const item = state.deck[state.round];
-      const right = guess === item.lang;
-
-      if (right) { state.score++; state.streak++; }
-      else { state.streak = 0; }
-      state.history.push(right);
-
-      // Lock the buttons and mark the one that was picked.
-      $("answers").classList.add("locked");
       buttons.forEach((b) => {
         b.disabled = true;
-        if (b.dataset.lang === guess) b.classList.add("picked");
-        if (b.dataset.lang === item.lang) b.classList.add("correct");
+        b.classList.toggle("picked", b.dataset.lang === guess);
       });
+
+      let r;
+      try {
+        r = await post(`/api/games/${state.gameId}/answers`, { guess });
+      } catch (err) {
+        buttons.forEach((b) => b.classList.remove("picked"));
+        if (err.status === 404) {
+          showError("This game expired on the server. Start a new one.", newGame, "Start new game");
+        } else {
+          showError("Couldn't send your answer. Try again.", () => { state.answered = false; answer(guess); });
+        }
+        return;
+      }
+
+      state.score = r.score;
+      state.streak = r.streak;
+      state.history.push(r.correct);
+      state.finished = r.finished;
+      state.nextSentence = r.next_sentence;
+
+      $("answers").classList.add("locked");
+      buttons.forEach((b) => b.classList.toggle("correct", b.dataset.lang === r.answer));
 
       // Stamp the correct language onto the card.
       const stamp = $("stamp");
-      stamp.textContent = LANG_NAMES[item.lang];
-      stamp.className = "stamp " + item.lang;
+      stamp.textContent = LANG_NAMES[r.answer];
+      stamp.className = "stamp " + r.answer;
       void stamp.offsetWidth;           // restart the animation
       stamp.classList.add("show");
 
-      $("feedback").textContent = right
-        ? (state.streak >= 3 ? `Correct. ${state.streak} in a row.` : "Correct.")
-        : `Not quite. That was ${LANG_NAMES[item.lang]}.`;
-      if (item.meaning) $("meaning").textContent = item.meaning;
+      $("feedback").textContent = r.correct
+        ? (r.streak >= 3 ? `Correct. ${r.streak} in a row.` : "Correct.")
+        : `Not quite. That was ${LANG_NAMES[r.answer]}.`;
+      $("meaning").textContent = r.meaning || "";
 
-      $("score").textContent = state.score;
-      $("streak").textContent = state.streak;
+      renderStats();
       renderTicks();
-
-      const last = state.round === ROUNDS - 1;
-      $("next").textContent = last ? "See results" : "Next sentence";
+      $("next").textContent = r.finished ? "See results" : "Next sentence";
       $("next").hidden = false;
       $("next").focus();
     }
 
     function next() {
-      if (state.round === ROUNDS - 1) return finish();
+      if (state.finished) return finish();
       state.round++;
-      showRound();
+      showSentence(state.nextSentence);
     }
 
-    // =========================================================
-    // 5. RESULTS + BEST SCORE
-    // The best score is saved in this browser only (localStorage).
-    // In Stage 3 a real leaderboard in a database replaces it.
-    // =========================================================
+    // ---------- Rendering ----------
+    function show(screen) {
+      $("game").hidden = screen !== "game";
+      $("results").hidden = screen !== "results";
+    }
+
+    function showSentence(text, { loading = false } = {}) {
+      state.answered = loading;
+      $("sentence").textContent = text;
+      $("sentence").classList.toggle("loading", loading);
+      $("meaning").textContent = "";
+      $("feedback").textContent = "";
+      $("next").hidden = true;
+      $("retry").hidden = true;
+      $("stamp").className = "stamp";
+      $("stamp").textContent = "";
+      $("answers").classList.remove("locked");
+      buttons.forEach((b) => {
+        b.disabled = loading;
+        b.classList.remove("picked", "correct");
+      });
+      renderStats();
+      renderTicks();
+    }
+
+    function showError(message, action, label = "Try again") {
+      $("feedback").textContent = message;
+      $("next").hidden = true;
+      $("retry").textContent = label;
+      $("retry").hidden = false;
+      $("retry").focus();
+      retryAction = action;
+    }
+
+    function renderStats() {
+      $("round").textContent = state.round;
+      $("total").textContent = state.total;
+      $("score").textContent = state.score;
+      $("streak").textContent = state.streak;
+    }
+
+    function renderTicks() {
+      const ticks = $("ticks");
+      ticks.innerHTML = "";
+      for (let i = 0; i < state.total; i++) {
+        const t = document.createElement("span");
+        t.className = "tick";
+        if (state.history[i] === true) t.classList.add("right");
+        else if (state.history[i] === false) t.classList.add("wrong");
+        else if (i === state.round - 1) t.classList.add("now");
+        ticks.appendChild(t);
+      }
+    }
+
+    // ---------- Results + best score (this browser only until Stage 3) ----------
     function readBest() {
       try { return Number(localStorage.getItem(BEST_KEY)) || 0; }
       catch { return 0; }
@@ -500,19 +493,18 @@
       const isNewBest = state.score > best;
       if (isNewBest) saveBest(state.score);
 
-      $("result-title").textContent = `You got ${state.score} of ${ROUNDS}.`;
+      $("result-title").textContent = `You got ${state.score} of ${state.total}.`;
       $("result-best").textContent = isNewBest
         ? "That's your new best score."
-        : `Your best so far: ${best} of ${ROUNDS}.`;
+        : `Your best so far: ${best} of ${state.total}.`;
       show("results");
       $("again").focus();
     }
 
-    // =========================================================
-    // 6. EVENTS: clicks and keyboard (1, 2, 3 to answer)
-    // =========================================================
+    // ---------- Events: clicks and keys 1, 2, 3 ----------
     buttons.forEach((b) => b.addEventListener("click", () => answer(b.dataset.lang)));
     $("next").addEventListener("click", next);
+    $("retry").addEventListener("click", () => retryAction && retryAction());
     $("again").addEventListener("click", newGame);
 
     document.addEventListener("keydown", (e) => {
