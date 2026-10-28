@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guess the Language</title>
+  <meta name="description" content="Read a sentence, guess if it's English, German or Spanish. Ten rounds.">
+
+  <!-- Fonts: Literata for the sentences (a book face with good ñ, ü, ß, ¿ support),
+       Atkinson Hyperlegible for the interface. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Literata:opsz,wght@7..72,500;7..72,700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---------- Design tokens ---------- */
+    :root {
+      --paper: #EEF1F4;   /* page background */
+      --card:  #FBFBF8;   /* the sentence card */
+      --ink:   #1B2440;   /* main text */
+      --muted: #5A6378;   /* secondary text */
+      --line:  #CDD3DC;   /* borders */
+      --en:    #2E4FB8;   /* English ink */
+      --de:    #0E7A64;   /* German ink */
+      --es:    #B0234F;   /* Spanish ink */
+      --focus: #F2B705;
+
+      --serif: "Literata", Georgia, serif;
+      --sans:  "Atkinson Hyperlegible", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper: #121A2E;
+        --card:  #1B2540;
+        --ink:   #E9ECF2;
+        --muted: #A3ABBE;
+        --line:  #2C3756;
+        --en:    #8EA6FF;
+        --de:    #5CD1B4;
+        --es:    #FF8AA8;
+      }
+    }
+    :root[data-theme="dark"] {
+      --paper: #121A2E;
+      --card:  #1B2540;
+      --ink:   #E9ECF2;
+      --muted: #A3ABBE;
+      --line:  #2C3756;
+      --en:    #8EA6FF;
+      --de:    #5CD1B4;
+      --es:    #FF8AA8;
+    }
+
+    /* ---------- Base ---------- */
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+    button { font: inherit; color: inherit; }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+
+    .wrap {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 40px 16px 32px;
+    }
+
+    /* ---------- Header ---------- */
+    header h1 {
+      font-family: var(--serif);
+      font-weight: 700;
+      font-size: clamp(2rem, 6vw, 2.75rem);
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+      margin: 0 0 8px;
+    }
+    header p { margin: 0; color: var(--muted); }
+
+    .stats {
+      display: flex;
+      gap: 24px;
+      margin: 28px 0 12px;
+      color: var(--muted);
+      font-size: 0.9375rem;
+    }
+    .stats b { color: var(--ink); font-size: 1.125rem; }
+
+    /* Progress ticks: one per round. Correct = filled, wrong = hollow with a slash. */
+    .ticks { display: flex; gap: 6px; margin-bottom: 16px; }
+    .tick {
+      flex: 1;
+      height: 8px;
+      border-radius: 4px;
+      background: var(--line);
+    }
+    .tick.right { background: var(--ink); }
+    .tick.wrong {
+      background: transparent;
+      box-shadow: inset 0 0 0 2px var(--ink);
+      background-image: linear-gradient(135deg, transparent 45%, var(--ink) 45%, var(--ink) 55%, transparent 55%);
+    }
+    .tick.now { box-shadow: inset 0 0 0 2px var(--ink); }
+
+    /* ---------- The sentence card ---------- */
+    .card {
+      position: relative;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 40px 28px 56px;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .sentence {
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: clamp(1.5rem, 4.5vw, 2.125rem);
+      line-height: 1.3;
+      margin: 0;
+      max-width: 30ch;
+    }
+    .meaning {
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 0.9375rem;
+      min-height: 1.5em;
+    }
+
+    /* The stamp: the one bold moment. It lands on the card after every answer. */
+    .stamp {
+      position: absolute;
+      right: 18px;
+      bottom: 14px;
+      padding: 6px 14px;
+      border: 3px solid currentColor;
+      border-radius: 4px;
+      outline: 1px solid currentColor;
+      outline-offset: 3px;
+      font-family: var(--sans);
+      font-weight: 700;
+      font-size: 1.125rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      transform: rotate(-7deg);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .stamp.show { opacity: 0.92; animation: stamp 260ms cubic-bezier(.2, .9, .3, 1.2); }
+    .stamp.en { color: var(--en); }
+    .stamp.de { color: var(--de); }
+    .stamp.es { color: var(--es); }
+    @keyframes stamp {
+      from { transform: rotate(-14deg) scale(1.7); opacity: 0; }
+      to   { transform: rotate(-7deg) scale(1);   opacity: 0.92; }
+    }
+
+    /* ---------- Answer buttons ---------- */
+    .answers {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .answer {
+      --c: var(--ink);
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 8px;
+      background: var(--card);
+      border: 2px solid var(--c);
+      border-radius: 6px;
+      color: var(--c);
+      font-weight: 700;
+      font-size: 1.0625rem;
+      cursor: pointer;
+      transition: background-color 120ms, color 120ms;
+    }
+    .answer[data-lang="en"] { --c: var(--en); }
+    .answer[data-lang="de"] { --c: var(--de); }
+    .answer[data-lang="es"] { --c: var(--es); }
+    .answer kbd {
+      font-family: var(--sans);
+      font-weight: 400;
+      font-size: 0.8125rem;
+      opacity: 0.7;
+    }
+    .answer:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 10%, var(--card)); }
+    .answer:disabled { cursor: default; }
+    .answer.picked { background: var(--c); color: var(--card); }
+    .answer.correct:not(.picked) { background: color-mix(in srgb, var(--c) 16%, var(--card)); }
+    .answers.locked .answer:not(.picked):not(.correct) { opacity: 0.45; }
+
+    /* ---------- Feedback + next ---------- */
+    .feedback {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 56px;
+      margin-top: 16px;
+    }
+    .feedback p { margin: 0; font-weight: 700; }
+    .primary {
+      padding: 12px 20px;
+      background: var(--ink);
+      color: var(--paper);
+      border: 0;
+      border-radius: 6px;
+      font-weight: 700;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .primary[hidden] { display: none; }
+
+    /* ---------- Results ---------- */
+    .results {
+      margin-top: 32px;
+      padding: 32px 28px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .results h2 {
+      font-family: var(--serif);
+      font-size: clamp(1.75rem, 5vw, 2.25rem);
+      margin: 0 0 8px;
+    }
+    .results p { margin: 0 0 8px; color: var(--muted); }
+    .results .primary { margin-top: 20px; }
+
+    footer {
+      margin-top: 48px;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    @media (max-width: 420px) {
+      .card { padding: 32px 20px 76px; }
+      .results { padding: 28px 20px; }
+      .answer { flex-direction: column; align-items: center; gap: 0; font-size: 1rem; }
+      .stats { gap: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .stamp.show { animation: none; }
+      .answer { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <h1>Guess the Language</h1>
+      <p>Read the sentence and pick its language. Ten rounds.</p>
+    </header>
+
+    <!-- Game screen -->
+    <section id="game">
+      <div class="stats" aria-label="Game status">
+        <span>Round <b id="round">1</b>/<span id="total">10</span></span>
+        <span>Score <b id="score">0</b></span>
+        <span>Streak <b id="streak">0</b></span>
+      </div>
+      <div class="ticks" id="ticks" aria-hidden="true"></div>
+
+      <div class="card">
+        <p class="sentence" id="sentence"></p>
+        <p class="meaning" id="meaning"></p>
+        <div class="stamp" id="stamp" aria-hidden="true"></div>
+      </div>
+
+      <div class="answers" id="answers">
+        <button class="answer" data-lang="en"><kbd>1</kbd>English</button>
+        <button class="answer" data-lang="de"><kbd>2</kbd>Deutsch</button>
+        <button class="answer" data-lang="es"><kbd>3</kbd>Español</button>
+      </div>
+
+      <div class="feedback">
+        <p id="feedback" aria-live="polite"></p>
+        <button class="primary" id="next" hidden>Next sentence</button>
+      </div>
+    </section>
+
+    <!-- Results screen -->
+    <section id="results" class="results" hidden>
+      <h2 id="result-title"></h2>
+      <p id="result-best"></p>
+      <p>Coming next: an AI that guesses along with you.</p>
+      <button class="primary" id="again">Play again</button>
+    </section>
+
+    <!-- Edit this line: add your name or a link to your GitHub repo. -->
+    <footer>A small project for learning how to deploy apps, step by step.</footer>
+    <footer>Owner: Carlos Cham</footer>
+    <footer>repo link : https://github.com/CWLCP99/Guess-the-language</footer>
+  </main>
+
+  <script>
+    // =========================================================
+    // 1. DATA
+    // In Stage 2 this list moves to the Python backend (FastAPI),
+    // and the page will fetch sentences from /round instead.
+    // =========================================================
+    const SENTENCES = [
+      // English
+      { text: "I missed the last train and walked home.", lang: "en" },
+      { text: "Could you pass me the salt, please?", lang: "en" },
+      { text: "My grandmother still writes letters by hand.", lang: "en" },
+      { text: "The meeting was moved to Thursday afternoon.", lang: "en" },
+      { text: "We forgot the tent, so we slept in the car.", lang: "en" },
+      { text: "Nobody knows who ate the last piece of cake.", lang: "en" },
+      { text: "The hotel has a restaurant and a bar.", lang: "en" },
+      { text: "It's raining cats and dogs.", lang: "en", meaning: "Idiom: it's raining very heavily." },
+      { text: "The bakery on the corner opens at six.", lang: "en" },
+      { text: "Turn left after the bridge and you'll see the station.", lang: "en" },
+
+      // German
+      { text: "Ich habe den letzten Zug verpasst und bin zu Fuß nach Hause gegangen.", lang: "de", meaning: "I missed the last train and walked home." },
+      { text: "Kannst du mir bitte das Salz geben?", lang: "de", meaning: "Can you pass me the salt, please?" },
+      { text: "Am Wochenende fahren wir in die Berge.", lang: "de", meaning: "At the weekend we're going to the mountains." },
+      { text: "Der Kühlschrank ist schon wieder leer.", lang: "de", meaning: "The fridge is empty again." },
+      { text: "Meine Nachbarin hat drei Katzen und einen Hund.", lang: "de", meaning: "My neighbour has three cats and a dog." },
+      { text: "Wir treffen uns um acht vor dem Kino.", lang: "de", meaning: "We'll meet at eight in front of the cinema." },
+      { text: "Das Hotel hat ein Restaurant und eine Bar.", lang: "de", meaning: "The hotel has a restaurant and a bar." },
+      { text: "Bei Regen bleibe ich lieber im Bett.", lang: "de", meaning: "When it rains I'd rather stay in bed." },
+      { text: "Die Bäckerei an der Ecke öffnet um sechs.", lang: "de", meaning: "The bakery on the corner opens at six." },
+      { text: "Ich verstehe nur Bahnhof.", lang: "de", meaning: "Idiom, literally \"I only understand train station\": I don't understand a thing." },
+
+      // Spanish
+      { text: "Perdí el último tren y volví a casa caminando.", lang: "es", meaning: "I missed the last train and walked home." },
+      { text: "¿Me pasas la sal, por favor?", lang: "es", meaning: "Can you pass me the salt, please?" },
+      { text: "Mañana vamos a la playa si no llueve.", lang: "es", meaning: "Tomorrow we're going to the beach if it doesn't rain." },
+      { text: "Mi abuela todavía escribe cartas a mano.", lang: "es", meaning: "My grandmother still writes letters by hand." },
+      { text: "El perro de mi vecino ladra toda la noche.", lang: "es", meaning: "My neighbour's dog barks all night." },
+      { text: "Nos vemos a las ocho delante del cine.", lang: "es", meaning: "See you at eight in front of the cinema." },
+      { text: "El hotel tiene un restaurante y un bar.", lang: "es", meaning: "The hotel has a restaurant and a bar." },
+      { text: "No hay mal que por bien no venga.", lang: "es", meaning: "Proverb: every cloud has a silver lining." },
+      { text: "La panadería de la esquina abre a las seis.", lang: "es", meaning: "The bakery on the corner opens at six." },
+      { text: "Me gusta cocinar con música.", lang: "es", meaning: "I like cooking with music on." },
+    ];
+
+    const LANG_NAMES = { en: "English", de: "Deutsch", es: "Español" };
+    const ROUNDS = 10;
+    const BEST_KEY = "gtl-best-score";
+
+    // =========================================================
+    // 2. GAME STATE
+    // Everything the game needs to remember lives in one object.
+    // =========================================================
+    let state;
+
+    function newGame() {
+      state = {
+        deck: shuffle([...SENTENCES]).slice(0, ROUNDS), // 10 random sentences
+        round: 0,          // index of the current sentence
+        score: 0,
+        streak: 0,
+        history: [],       // true/false per answered round
+        answered: false,
+      };
+      show("game");
+      renderTicks();
+      showRound();
+    }
+
+    // Fisher–Yates shuffle: a fair random order.
+    function shuffle(list) {
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      return list;
+    }
+
+    // =========================================================
+    // 3. RENDERING
+    // =========================================================
+    const $ = (id) => document.getElementById(id);
+    const buttons = [...document.querySelectorAll(".answer")];
+
+    function show(screen) {
+      $("game").hidden = screen !== "game";
+      $("results").hidden = screen !== "results";
+    }
+
+    function renderTicks() {
+      const ticks = $("ticks");
+      ticks.innerHTML = "";
+      for (let i = 0; i < ROUNDS; i++) {
+        const t = document.createElement("span");
+        t.className = "tick";
+        if (state.history[i] === true) t.classList.add("right");
+        else if (state.history[i] === false) t.classList.add("wrong");
+        else if (i === state.round) t.classList.add("now");
+        ticks.appendChild(t);
+      }
+    }
+
+    function showRound() {
+      const item = state.deck[state.round];
+      state.answered = false;
+
+      $("round").textContent = state.round + 1;
+      $("total").textContent = ROUNDS;
+      $("score").textContent = state.score;
+      $("streak").textContent = state.streak;
+      $("sentence").textContent = item.text;
+      $("sentence").lang = item.lang; // helps screen readers pronounce it
+      $("meaning").textContent = "";
+      $("feedback").textContent = "";
+      $("next").hidden = true;
+
+      const stamp = $("stamp");
+      stamp.className = "stamp";
+      stamp.textContent = "";
+
+      $("answers").classList.remove("locked");
+      buttons.forEach((b) => {
+        b.disabled = false;
+        b.classList.remove("picked", "correct");
+      });
+      renderTicks();
+    }
+
+    // =========================================================
+    // 4. ANSWERING
+    // =========================================================
+    function answer(guess) {
+      if (state.answered) return;
+      state.answered = true;
+
+      const item = state.deck[state.round];
+      const right = guess === item.lang;
+
+      if (right) { state.score++; state.streak++; }
+      else { state.streak = 0; }
+      state.history.push(right);
+
+      // Lock the buttons and mark the one that was picked.
+      $("answers").classList.add("locked");
+      buttons.forEach((b) => {
+        b.disabled = true;
+        if (b.dataset.lang === guess) b.classList.add("picked");
+        if (b.dataset.lang === item.lang) b.classList.add("correct");
+      });
+
+      // Stamp the correct language onto the card.
+      const stamp = $("stamp");
+      stamp.textContent = LANG_NAMES[item.lang];
+      stamp.className = "stamp " + item.lang;
+      void stamp.offsetWidth;           // restart the animation
+      stamp.classList.add("show");
+
+      $("feedback").textContent = right
+        ? (state.streak >= 3 ? `Correct. ${state.streak} in a row.` : "Correct.")
+        : `Not quite. That was ${LANG_NAMES[item.lang]}.`;
+      if (item.meaning) $("meaning").textContent = item.meaning;
+
+      $("score").textContent = state.score;
+      $("streak").textContent = state.streak;
+      renderTicks();
+
+      const last = state.round === ROUNDS - 1;
+      $("next").textContent = last ? "See results" : "Next sentence";
+      $("next").hidden = false;
+      $("next").focus();
+    }
+
+    function next() {
+      if (state.round === ROUNDS - 1) return finish();
+      state.round++;
+      showRound();
+    }
+
+    // =========================================================
+    // 5. RESULTS + BEST SCORE
+    // The best score is saved in this browser only (localStorage).
+    // In Stage 3 a real leaderboard in a database replaces it.
+    // =========================================================
+    function readBest() {
+      try { return Number(localStorage.getItem(BEST_KEY)) || 0; }
+      catch { return 0; }
+    }
+    function saveBest(value) {
+      try { localStorage.setItem(BEST_KEY, String(value)); } catch { /* storage blocked: ignore */ }
+    }
+
+    function finish() {
+      const best = readBest();
+      const isNewBest = state.score > best;
+      if (isNewBest) saveBest(state.score);
+
+      $("result-title").textContent = `You got ${state.score} of ${ROUNDS}.`;
+      $("result-best").textContent = isNewBest
+        ? "That's your new best score."
+        : `Your best so far: ${best} of ${ROUNDS}.`;
+      show("results");
+      $("again").focus();
+    }
+
+    // =========================================================
+    // 6. EVENTS: clicks and keyboard (1, 2, 3 to answer)
+    // =========================================================
+    buttons.forEach((b) => b.addEventListener("click", () => answer(b.dataset.lang)));
+    $("next").addEventListener("click", next);
+    $("again").addEventListener("click", newGame);
+
+    document.addEventListener("keydown", (e) => {
+      if ($("game").hidden || e.metaKey || e.ctrlKey || e.altKey) return;
+      const keyMap = { "1": "en", "2": "de", "3": "es" };
+      if (keyMap[e.key] && !state.answered) answer(keyMap[e.key]);
+    });
+
+    newGame();
+  </script>
+</body>
+</html>
