@@ -64,4 +64,3 @@ Your best score is saved in your own browser with `localStorage`. A real shared 
 
 ## What I learned
 
-*(Fill this in as you go. Note anything that broke and how you fixed it. It's the most interesting part for anyone reading.)*
